@@ -1,6 +1,9 @@
 # Source documents (not for repo)
 files/
 
+# Project analysis
+project.xml
+
 # Environment — never commit real keys
 .env
 
