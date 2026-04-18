@@ -4,6 +4,10 @@ files/
 # Project analysis
 project.xml
 
+# Database
+*.db
+*.sqlite
+
 # Environment — never commit real keys
 .env
 
