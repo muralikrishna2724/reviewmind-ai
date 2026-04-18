@@ -1,13 +1,18 @@
-import React, { useState } from "react";
-import type { MemoryEntry, ReviewResponse } from "./types";
-import { submitReview } from "./api";
-import DemoProgressBar from "./components/DemoProgressBar";
-import MemoryPanel from "./components/MemoryPanel";
+import React, { useState, useEffect, useCallback } from "react";
+import type { Project, ProjectFile, MemoryEntry, ReviewResponse, ReviewSummary } from "./types";
+import {
+  submitReview, injectMemory, listProjects, deleteProject,
+  listFiles, getFileContent, listReviews,
+} from "./api";
+import Sidebar from "./components/Sidebar";
+import NewProjectModal from "./components/NewProjectModal";
+import FileExplorer from "./components/FileExplorer";
 import CodeInputArea from "./components/CodeInputArea";
 import ReviewOutputPanel from "./components/ReviewOutputPanel";
-import InjectMemoryButton from "./components/InjectMemoryButton";
+import MemoryPanel from "./components/MemoryPanel";
 import ComparisonView from "./components/ComparisonView";
-import { Play, ChevronRight } from "lucide-react";
+import { InjectMemoryButton } from "./components/InjectMemoryButton";
+import { Columns2, Play, Loader2, AlertCircle } from "lucide-react";
 
 const DEFAULT_CODE = `async def get_user_orders(user_id: int, filters=[]):
     result = await db.query(Order).filter(Order.user_id == user_id).all()
@@ -15,192 +20,230 @@ const DEFAULT_CODE = `async def get_user_orders(user_id: int, filters=[]):
 
 const DEFAULT_CONTRIBUTOR = "Arjun Mehta";
 
-type Step = 1 | 2 | 3 | 4 | 5;
-
 export default function App() {
-  const [step, setStep] = useState<Step>(1);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [files, setFiles] = useState<ProjectFile[]>([]);
+  const [recentReviews, setRecentReviews] = useState<ReviewSummary[]>([]);
+  const [selectedFile, setSelectedFile] = useState<ProjectFile | null>(null);
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [contributor] = useState(DEFAULT_CONTRIBUTOR);
+  const [contributor, setContributor] = useState(DEFAULT_CONTRIBUTOR);
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
-  const [reviewWithout, setReviewWithout] = useState<ReviewResponse | null>(null);
-  const [reviewWith, setReviewWith] = useState<ReviewResponse | null>(null);
+  const [reviewResult, setReviewResult] = useState<ReviewResponse | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | undefined>();
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [withoutReview, setWithoutReview] = useState<ReviewResponse | null>(null);
+  const [withReview, setWithReview] = useState<ReviewResponse | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
 
-  const advance = () => setStep((s) => Math.min(s + 1, 5) as Step);
+  // Load projects on mount
+  useEffect(() => {
+    listProjects().then(setProjects).catch(() => {});
+  }, []);
 
-  const handleReview1 = async () => {
+  // Load files + reviews when project changes
+  useEffect(() => {
+    if (!currentProjectId) return;
+    listFiles(currentProjectId).then(setFiles).catch(() => {});
+    listReviews(currentProjectId).then(setRecentReviews).catch(() => {});
+  }, [currentProjectId]);
+
+  // Load file content when file selected
+  useEffect(() => {
+    if (!selectedFile || !currentProjectId) return;
+    getFileContent(currentProjectId, selectedFile.id)
+      .then(setCode)
+      .catch(() => {});
+  }, [selectedFile, currentProjectId]);
+
+  const handleReview = useCallback(async () => {
     setReviewLoading(true);
     setReviewError(undefined);
     try {
-      const result = await submitReview(code, contributor);
-      setReviewWithout(result);
-      setStep(2);
+      const result = await submitReview(code, contributor, {
+        projectId: currentProjectId ?? undefined,
+        fileId: selectedFile?.id,
+        filePath: selectedFile?.path,
+      });
+      setReviewResult(result);
+      // Refresh recent reviews
+      if (currentProjectId) {
+        listReviews(currentProjectId).then(setRecentReviews).catch(() => {});
+      }
     } catch (e: unknown) {
       setReviewError(e instanceof Error ? e.message : "Review failed");
     } finally {
       setReviewLoading(false);
     }
-  };
+  }, [code, contributor, currentProjectId, selectedFile]);
 
-  const handleMemoryInjected = (entries: MemoryEntry[]) => {
-    setMemoryEntries(entries);
-    setStep(4);
-  };
-
-  const handleReview2 = async () => {
+  const handleComparison = useCallback(async () => {
     setReviewLoading(true);
     setReviewError(undefined);
+    setWithoutReview(null);
+    setWithReview(null);
     try {
-      const result = await submitReview(code, contributor);
-      setReviewWith(result);
-      setStep(5);
+      const [r1, r2] = await Promise.all([
+        submitReview(code, contributor, {
+          projectId: currentProjectId ?? undefined,
+          forceMemoryMode: "without",
+        }),
+        submitReview(code, contributor, {
+          projectId: currentProjectId ?? undefined,
+          forceMemoryMode: "with",
+        }),
+      ]);
+      setWithoutReview(r1);
+      setWithReview(r2);
     } catch (e: unknown) {
-      setReviewError(e instanceof Error ? e.message : "Review failed");
+      setReviewError(e instanceof Error ? e.message : "Comparison failed");
     } finally {
       setReviewLoading(false);
     }
+  }, [code, contributor, currentProjectId]);
+
+  const handleDeleteProject = async (id: string) => {
+    await deleteProject(id).catch(() => {});
+    setProjects(ps => ps.filter(p => p.id !== id));
+    if (currentProjectId === id) {
+      setCurrentProjectId(null);
+      setFiles([]);
+      setRecentReviews([]);
+    }
+  };
+
+  const handleProjectCreated = (project: Project) => {
+    setProjects(ps => [project, ...ps]);
+    setCurrentProjectId(project.id);
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">ReviewMind AI</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Persistent memory-powered code review · Crestline Software · Orion API
-        </p>
+    <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
+      {/* Sidebar */}
+      <Sidebar
+        projects={projects}
+        currentProjectId={currentProjectId}
+        recentReviews={recentReviews}
+        onProjectChange={id => { setCurrentProjectId(id); setSelectedFile(null); setReviewResult(null); }}
+        onNewProject={() => setShowNewProject(true)}
+        onInjectMemory={() => {}}
+        onDeleteProject={handleDeleteProject}
+      />
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <div className="border-b border-gray-800 px-6 py-3 flex items-center justify-between shrink-0">
+          <div>
+            <h1 className="text-sm font-bold text-white">
+              {projects.find(p => p.id === currentProjectId)?.name ?? "ReviewMind AI"}
+            </h1>
+            <p className="text-xs text-gray-500">Persistent memory-powered code review</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={comparisonMode}
+                onChange={e => { setComparisonMode(e.target.checked); setWithoutReview(null); setWithReview(null); }}
+                className="rounded"
+              />
+              <Columns2 size={13} />
+              Comparison Mode
+            </label>
+            <input
+              value={contributor}
+              onChange={e => setContributor(e.target.value)}
+              placeholder="Contributor"
+              className="px-3 py-1.5 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 outline-none w-36"
+            />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* File explorer (only if project has files) */}
+          {files.length > 0 && (
+            <div className="w-52 border-r border-gray-800 p-3 overflow-y-auto shrink-0">
+              <FileExplorer
+                files={files}
+                onFileSelect={setSelectedFile}
+                selectedFileId={selectedFile?.id}
+              />
+            </div>
+          )}
+
+          {/* Center: code + review */}
+          <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+            {comparisonMode ? (
+              <>
+                <CodeInputArea value={code} onChange={setCode} />
+                <button
+                  onClick={handleComparison}
+                  disabled={reviewLoading}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
+                >
+                  {reviewLoading ? <><Loader2 size={14} className="animate-spin" /> Running...</> : <><Columns2 size={14} /> Run Side-by-Side Comparison</>}
+                </button>
+                {reviewError && (
+                  <div className="flex items-center gap-2 text-xs text-red-400">
+                    <AlertCircle size={13} /> {reviewError}
+                  </div>
+                )}
+                {withoutReview && withReview && (
+                  <div className="flex-1 overflow-y-auto">
+                    <ComparisonView withoutReview={withoutReview.review} withReview={withReview.review} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <CodeInputArea value={code} onChange={setCode} />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleReview}
+                    disabled={reviewLoading}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
+                  >
+                    {reviewLoading ? <><Loader2 size={14} className="animate-spin" /> Reviewing...</> : <><Play size={14} /> Review Code</>}
+                  </button>
+                  <InjectMemoryButton
+                    onSuccess={setMemoryEntries}
+                    onLoadingChange={setMemoryLoading}
+                  />
+                </div>
+                {reviewError && (
+                  <div className="flex items-center gap-2 text-xs text-red-400">
+                    <AlertCircle size={13} /> {reviewError}
+                  </div>
+                )}
+                {(reviewResult || reviewLoading) && (
+                  <div className="flex-1 overflow-y-auto">
+                    <ReviewOutputPanel
+                      review={reviewResult?.review ?? null}
+                      mode={reviewResult?.memory_mode ?? "without"}
+                      loading={reviewLoading}
+                      error={reviewError}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Right: memory panel */}
+          <div className="w-72 border-l border-gray-800 p-3 overflow-y-auto shrink-0">
+            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
+          </div>
+        </div>
       </div>
 
-      {/* Progress */}
-      <DemoProgressBar currentStep={step} />
-
-      {/* Step 1: Setup */}
-      {step === 1 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-lg p-4">
-              <h2 className="text-sm font-bold text-gray-200 mb-2">The Scenario</h2>
-              <p className="text-xs text-gray-400 leading-relaxed">
-                Sprint 14 at Crestline Software. <strong className="text-gray-200">Arjun Mehta</strong> has just opened PR #5 on the Orion API.
-                Your team has reviewed 4 PRs this sprint. Does your reviewer remember what was flagged before?
-              </p>
-            </div>
-            <CodeInputArea value={code} onChange={setCode} />
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-500">Contributor: <span className="text-gray-300 font-mono">{contributor}</span></span>
-            </div>
-            <button
-              onClick={handleReview1}
-              disabled={reviewLoading}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
-            >
-              <Play size={14} />
-              Review Without Memory
-            </button>
-            {reviewError && <p className="text-xs text-red-400">{reviewError}</p>}
-          </div>
-          <div>
-            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Review 1 — Without Memory */}
-      {step === 2 && reviewWithout && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <CodeInputArea value={code} onChange={setCode} readOnly />
-            <ReviewOutputPanel
-              review={reviewWithout.review}
-              mode="without"
-              loading={reviewLoading}
-              error={reviewError}
-            />
-            <button
-              onClick={() => setStep(3)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-colors"
-            >
-              <ChevronRight size={14} />
-              Next: Inject Memory
-            </button>
-          </div>
-          <div>
-            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Memory Injection */}
-      {step === 3 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-gray-900 border border-blue-800 rounded-lg p-4">
-              <h2 className="text-sm font-bold text-blue-300 mb-2">Load Team Memory</h2>
-              <p className="text-xs text-gray-400 leading-relaxed mb-4">
-                Inject the review history from PRs #1–4 into Hindsight. Watch the memory panel populate with
-                team conventions, recurring mistakes, and architectural decisions.
-              </p>
-              <InjectMemoryButton
-                onSuccess={handleMemoryInjected}
-                onLoadingChange={setMemoryLoading}
-              />
-            </div>
-          </div>
-          <div>
-            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Review 2 — With Memory */}
-      {step === 4 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <CodeInputArea value={code} onChange={setCode} readOnly />
-            {reviewWith ? (
-              <ReviewOutputPanel
-                review={reviewWith.review}
-                mode="with"
-                loading={reviewLoading}
-                error={reviewError}
-              />
-            ) : (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-400">Same code. Now with full team memory loaded.</p>
-                <button
-                  onClick={handleReview2}
-                  disabled={reviewLoading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
-                >
-                  <Play size={14} />
-                  {reviewLoading ? "Reviewing..." : "Review With Memory"}
-                </button>
-                {reviewError && <p className="text-xs text-red-400">{reviewError}</p>}
-              </div>
-            )}
-            {reviewWith && (
-              <button
-                onClick={advance}
-                className="flex items-center gap-2 px-5 py-2.5 bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold rounded-lg transition-colors"
-              >
-                <ChevronRight size={14} />
-                See The Delta
-              </button>
-            )}
-          </div>
-          <div>
-            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
-          </div>
-        </div>
-      )}
-
-      {/* Step 5: The Close — Side-by-side comparison */}
-      {step === 5 && reviewWithout && reviewWith && (
-        <ComparisonView
-          withoutReview={reviewWithout.review}
-          withReview={reviewWith.review}
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onSuccess={handleProjectCreated}
         />
       )}
     </div>

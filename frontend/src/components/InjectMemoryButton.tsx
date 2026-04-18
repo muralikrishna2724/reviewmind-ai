@@ -43,7 +43,7 @@ interface Props {
   onLoadingChange: (loading: boolean) => void;
 }
 
-export default function InjectMemoryButton({ onSuccess, onLoadingChange }: Props) {
+export function InjectMemoryButton({ onSuccess, onLoadingChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [failCount, setFailCount] = useState(0);
 
