@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import axios from "axios";
 import { createProject } from "../api";
 import type { Project } from "../types";
 import { X, GitBranch, Loader2 } from "lucide-react";
@@ -29,10 +30,26 @@ export default function NewProjectModal({ onClose, onSuccess }: Props) {
       onSuccess(project);
       onClose();
     } catch (e: unknown) {
-      // Extract the actual detail from the backend response if available
-      const axiosErr = e as { response?: { data?: { detail?: string } }; message?: string };
-      const detail = axiosErr?.response?.data?.detail;
-      setError(detail ?? (e instanceof Error ? e.message : "Failed to create project"));
+      let errorMsg = "Failed to create project";
+      if (axios.isAxiosError(e)) {
+        const detail: unknown = e.response?.data?.detail;
+        if (typeof detail === "string") {
+          errorMsg = detail;
+        } else if (Array.isArray(detail)) {
+          // FastAPI validation errors: [{msg: "...", loc: [...]}]
+          errorMsg = detail.map((d: unknown) => {
+            if (d && typeof d === "object" && "msg" in d) return (d as { msg: string }).msg;
+            return String(d);
+          }).join("; ");
+        } else if (detail && typeof detail === "object") {
+          errorMsg = JSON.stringify(detail);
+        } else if (e.message) {
+          errorMsg = e.message;
+        }
+      } else if (e instanceof Error) {
+        errorMsg = e.message;
+      }
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
