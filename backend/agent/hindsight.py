@@ -86,7 +86,48 @@ async def write_memory(entry: MemoryEntryInput) -> bool:
         await client.aclose()
 
 
-async def query_memory(
+async def list_memories() -> list[MemoryEntry]:
+    """List all memories stored in the Hindsight bank.
+
+    Returns a list of MemoryEntry records, or [] on any error (never raises).
+    """
+    client = _client()
+    try:
+        result = client.list_memories(bank_id=BANK_ID, limit=100)
+        entries: list[MemoryEntry] = []
+        for i, item in enumerate(result.items or []):
+            try:
+                meta: dict = {}
+                if hasattr(item, "metadata") and item.metadata:
+                    meta = item.metadata if isinstance(item.metadata, dict) else {}
+                text = ""
+                if hasattr(item, "content"):
+                    text = item.content or ""
+                elif hasattr(item, "text"):
+                    text = item.text or ""
+                else:
+                    text = str(item)
+                entry = MemoryEntry(
+                    id=str(i),
+                    created_at="",
+                    category=meta.get("category", "Team Convention"),
+                    contributor=meta.get("contributor"),
+                    file_path=meta.get("file_path"),
+                    module=meta.get("module"),
+                    pattern_tag=meta.get("pattern_tag"),
+                    description=text,
+                )
+                entries.append(entry)
+            except Exception as parse_exc:
+                logger.warning("Skipping unparseable memory item: %s", parse_exc)
+        return entries
+    except Exception as exc:
+        logger.error("Hindsight list_memories error: %s", exc)
+        return []
+    finally:
+        client.close()
+
+
     contributor: str | None = None,
     file_path: str | None = None,
     tags: list[str] | None = None,

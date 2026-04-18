@@ -293,6 +293,13 @@ async def get_review(review_id: str, db: AsyncSession = Depends(get_db)):
 
 # ── Memory endpoints ──────────────────────────────────────────────────────────
 
+@app.get("/memory")
+async def get_memory():
+    """Fetch all memories currently stored in the Hindsight bank."""
+    entries = await hindsight.list_memories()
+    return {"entries": [e.model_dump() for e in entries], "total": len(entries)}
+
+
 @app.post("/inject-memory", response_model=InjectResponse)
 async def inject_memory(request: InjectRequest):
     written = failed = 0

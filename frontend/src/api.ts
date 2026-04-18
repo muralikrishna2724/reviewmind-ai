@@ -37,6 +37,11 @@ export async function injectMemory(entries: MemoryEntryInput[]): Promise<InjectR
   return data;
 }
 
+export async function fetchMemory(): Promise<MemoryEntryInput[]> {
+  const { data } = await api.get<{ entries: MemoryEntryInput[] }>("/memory");
+  return Array.isArray(data?.entries) ? data.entries : [];
+}
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export async function createProject(payload: {

@@ -239,7 +239,7 @@ export default function App() {
 
           {/* Right: memory panel */}
           <div className="w-72 border-l border-gray-800 p-3 overflow-y-auto shrink-0">
-            <MemoryPanel entries={memoryEntries} loading={memoryLoading} />
+            <MemoryPanel injectedEntries={memoryEntries} loading={memoryLoading} />
           </div>
         </div>
       </div>
