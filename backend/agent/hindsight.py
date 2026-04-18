@@ -128,6 +128,7 @@ async def list_memories() -> list[MemoryEntry]:
         client.close()
 
 
+async def query_memory(
     contributor: str | None = None,
     file_path: str | None = None,
     tags: list[str] | None = None,

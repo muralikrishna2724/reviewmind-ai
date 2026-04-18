@@ -8,6 +8,7 @@ Retry policy:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -44,7 +45,8 @@ async def call_with_tools(
 
     for attempt in range(1, 3):  # attempts 1 and 2 use function calling
         try:
-            response = client.chat.completions.create(
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
                 model=model,
                 messages=[
                     {"role": "system", "content": system},
@@ -93,7 +95,8 @@ async def call_text_only(system: str, user: str) -> str | GroqError:
     client = _client()
     model = _model()
     try:
-        response = client.chat.completions.create(
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
             model=model,
             messages=[
                 {"role": "system", "content": system},
