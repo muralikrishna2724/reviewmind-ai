@@ -1,6 +1,7 @@
 """ReviewMind AI — FastAPI application (Production)."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -54,7 +55,7 @@ app.add_middleware(
 # ── Dependency ────────────────────────────────────────────────────────────────
 
 from database import get_db
-from models.db_models import File, Project, Review
+from models.db_models import File, Project, PullRequest, Review
 from models.review import (
     InjectRequest, InjectResponse, MemoryEntryInput,
     ReviewRequest, ReviewResponse,
@@ -62,6 +63,7 @@ from models.review import (
 from agent import hindsight
 from agent.workflow import run_review
 from services import git_service
+from services import github_service
 
 
 # ── Pydantic request/response schemas ────────────────────────────────────────
@@ -83,7 +85,16 @@ class ProjectResponse(BaseModel):
     created_at: str
 
 
-class ReviewRequestV2(ReviewRequest):
+class InjectPRsRequest(BaseModel):
+    limit: int = 30  # number of PRs to fetch (1–100)
+
+
+class InjectPRsResponse(BaseModel):
+    fetched: int
+    written: int
+    failed: int
+    bank_id: str
+    errors: list[str]
     project_id: Optional[str] = None
     file_id: Optional[str] = None
     force_memory_mode: Optional[str] = None  # 'with' | 'without' | None
@@ -144,6 +155,32 @@ async def create_project(req: CreateProjectRequest, db: AsyncSession = Depends(g
     db.add(project)
     await db.commit()
     await db.refresh(project)
+
+    # Fetch PRs from GitHub after project is saved (non-blocking — failures are logged, not raised)
+    if req.source_type == "git" and req.git_url:
+        try:
+            prs = await asyncio.to_thread(github_service.fetch_pull_requests, req.git_url)
+            for pr in prs:
+                db.add(PullRequest(
+                    project_id=project_id,
+                    pr_number=pr["number"],
+                    title=pr["title"],
+                    state=pr["state"],
+                    author=pr["author"],
+                    branch=pr["branch"],
+                    base_branch=pr["base_branch"],
+                    body=pr["body"],
+                    pr_created_at=pr["created_at"],
+                    pr_updated_at=pr["updated_at"],
+                    merged_at=pr["merged_at"],
+                    url=pr["url"],
+                    diff_url=pr["diff_url"],
+                ))
+            await db.commit()
+            logger.info("Fetched %d PRs for project %s", len(prs), project_id)
+        except Exception as exc:
+            logger.warning("Could not fetch PRs for %s: %s", req.git_url, exc)
+
     return _project_to_response(project)
 
 
@@ -180,6 +217,110 @@ async def list_files(project_id: str, db: AsyncSession = Depends(get_db)):
     return [{"id": str(f.id), "path": f.path, "name": f.name,
              "size": f.size, "type": f.file_type, "reviewed": f.reviewed}
             for f in files]
+
+
+@app.get("/projects/{project_id}/prs")
+async def list_pull_requests(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Return all pull requests fetched for this project."""
+    result = await db.execute(
+        select(PullRequest)
+        .where(PullRequest.project_id == project_id)
+        .order_by(PullRequest.pr_number.desc())
+    )
+    prs = result.scalars().all()
+    return {
+        "pull_requests": [
+            {
+                "id": str(pr.id),
+                "number": pr.pr_number,
+                "title": pr.title,
+                "state": pr.state,
+                "author": pr.author,
+                "branch": pr.branch,
+                "base_branch": pr.base_branch,
+                "body": pr.body,
+                "created_at": pr.pr_created_at,
+                "updated_at": pr.pr_updated_at,
+                "merged_at": pr.merged_at,
+                "url": pr.url,
+                "diff_url": pr.diff_url,
+            }
+            for pr in prs
+        ],
+        "total": len(prs),
+    }
+
+
+@app.post("/projects/{project_id}/inject-prs")
+async def inject_prs(
+    project_id: str,
+    req: InjectPRsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch the last N PRs from the project's GitHub repo and write each to a
+    per-project Hindsight memory bank."""
+    p = await db.get(Project, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not p.source_url:
+        raise HTTPException(status_code=400, detail="Project has no GitHub URL")
+
+    limit = max(1, min(req.limit, 100))
+    bank_id = hindsight.project_bank_id(project_id)
+
+    # Ensure the per-project bank exists
+    await hindsight.ensure_bank(bank_id=bank_id, name=f"{p.name} — PR Memory")
+
+    # Fetch PRs from GitHub
+    try:
+        prs = await asyncio.to_thread(
+            github_service.fetch_pull_requests, p.source_url, "all", limit
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"GitHub fetch failed: {exc}")
+
+    written = failed = 0
+    errors: list[str] = []
+
+    for pr in prs:
+        # Build a rich memory description from the PR
+        body_snippet = (pr["body"] or "")[:300].strip()
+        description = (
+            f"PR #{pr['number']} by {pr['author']}: {pr['title']}. "
+            f"Branch: {pr['branch']} → {pr['base_branch']}. "
+            f"State: {pr['state']}."
+        )
+        if body_snippet:
+            description += f" Description: {body_snippet}"
+
+        entry = MemoryEntryInput(
+            category="Team Convention",
+            contributor=pr["author"] or None,
+            file_path=None,
+            module=None,
+            pattern_tag=f"pr-{pr['number']}",
+            description=description,
+        )
+
+        success = await hindsight.write_memory(entry, bank_id=bank_id)
+        if success:
+            written += 1
+        else:
+            failed += 1
+            errors.append(f"PR #{pr['number']} write failed")
+            break  # fail-fast
+
+    logger.info(
+        "inject-prs project=%s bank=%s fetched=%d written=%d failed=%d",
+        project_id, bank_id, len(prs), written, failed,
+    )
+    return InjectPRsResponse(
+        fetched=len(prs),
+        written=written,
+        failed=failed,
+        bank_id=bank_id,
+        errors=errors,
+    )
 
 
 @app.get("/projects/{project_id}/files/{file_id}/content")
@@ -310,6 +451,7 @@ async def inject_memory(request: InjectRequest):
         else:
             failed += 1
             errors.append(f"Failed: {entry.description[:60]}")
+            break
     return InjectResponse(written=written, failed=failed, errors=errors)
 
 

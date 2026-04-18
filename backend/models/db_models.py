@@ -50,6 +50,7 @@ class Project(Base):
 
     files = relationship("File", back_populates="project", cascade="all, delete-orphan")
     reviews = relationship("Review", back_populates="project", cascade="all, delete-orphan")
+    pull_requests = relationship("PullRequest", back_populates="project", cascade="all, delete-orphan")
 
 
 class File(Base):
@@ -93,3 +94,25 @@ class Review(Base):
 
     project = relationship("Project", back_populates="reviews")
     file = relationship("File", back_populates="reviews")
+
+
+class PullRequest(Base):
+    __tablename__ = "pull_requests"
+
+    id = Column(GUID, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(GUID, ForeignKey("projects.id"), nullable=False)
+    pr_number = Column(Integer, nullable=False)
+    title = Column(Text, nullable=False)
+    state = Column(String(20), nullable=False)   # 'open' | 'closed'
+    author = Column(String(255))
+    branch = Column(String(255))
+    base_branch = Column(String(255))
+    body = Column(Text)
+    pr_created_at = Column(String(50))
+    pr_updated_at = Column(String(50))
+    merged_at = Column(String(50))
+    url = Column(Text)
+    diff_url = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="pull_requests")

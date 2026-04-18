@@ -5,6 +5,7 @@ Never raises to the caller — errors are caught and converted to safe defaults.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -14,8 +15,14 @@ from models.review import MemoryEntry, MemoryEntryInput
 
 logger = logging.getLogger(__name__)
 
-# Single bank for the ReviewMind AI demo
-BANK_ID = "reviewmind-ai"
+# Default bank for the ReviewMind AI demo
+DEFAULT_BANK_ID = "reviewmind-ai"
+BANK_ID = DEFAULT_BANK_ID  # kept for backward compatibility
+
+
+def project_bank_id(project_id: str) -> str:
+    """Return a per-project Hindsight bank ID."""
+    return f"reviewmind-{project_id[:8]}"
 
 
 def _client() -> Hindsight:
@@ -25,28 +32,30 @@ def _client() -> Hindsight:
     )
 
 
-async def ensure_bank() -> None:
+async def ensure_bank(bank_id: str = BANK_ID, name: str | None = None) -> None:
     """Create the memory bank if it doesn't exist yet."""
     client = _client()
+    bank_name = name or f"ReviewMind AI — {bank_id}"
     try:
-        client.create_bank(
-            bank_id=BANK_ID,
-            name="ReviewMind AI — Crestline Software",
+        await asyncio.to_thread(
+            client.create_bank,
+            bank_id=bank_id,
+            name=bank_name,
             background=(
                 "Memory bank for the ReviewMind AI code review agent. "
                 "Stores team conventions, recurring mistakes per contributor, "
-                "architectural decisions, and approved exceptions for the Orion API project."
+                "architectural decisions, and approved exceptions."
             ),
         )
-        logger.info("Hindsight bank '%s' created.", BANK_ID)
+        logger.info("Hindsight bank '%s' created.", bank_id)
     except Exception as exc:
         # Bank likely already exists — that's fine
         logger.debug("ensure_bank: %s", exc)
     finally:
-        client.close()
+        await asyncio.to_thread(client.close)
 
 
-async def write_memory(entry: MemoryEntryInput) -> bool:
+async def write_memory(entry: MemoryEntryInput, bank_id: str = BANK_ID) -> bool:
     """Store a single memory entry in Hindsight.
 
     Returns True on success, False on any error (never raises).
@@ -73,7 +82,7 @@ async def write_memory(entry: MemoryEntryInput) -> bool:
             context_parts.append(f"Pattern: {entry.pattern_tag}")
 
         await client.aretain(
-            bank_id=BANK_ID,
+            bank_id=bank_id,
             content=content,
             context=", ".join(context_parts) if context_parts else None,
             metadata=metadata,
@@ -86,14 +95,14 @@ async def write_memory(entry: MemoryEntryInput) -> bool:
         await client.aclose()
 
 
-async def list_memories() -> list[MemoryEntry]:
+async def list_memories(bank_id: str = BANK_ID) -> list[MemoryEntry]:
     """List all memories stored in the Hindsight bank.
 
     Returns a list of MemoryEntry records, or [] on any error (never raises).
     """
     client = _client()
     try:
-        result = client.list_memories(bank_id=BANK_ID, limit=100)
+        result = await asyncio.to_thread(client.list_memories, bank_id=bank_id, limit=100)
         entries: list[MemoryEntry] = []
         for i, item in enumerate(result.items or []):
             try:
@@ -125,12 +134,14 @@ async def list_memories() -> list[MemoryEntry]:
         logger.error("Hindsight list_memories error: %s", exc)
         return []
     finally:
-        client.close()
+        await asyncio.to_thread(client.close)
 
 
+async def query_memory(
     contributor: str | None = None,
     file_path: str | None = None,
     tags: list[str] | None = None,
+    bank_id: str = BANK_ID,
 ) -> list[MemoryEntry]:
     """Retrieve relevant memory entries from Hindsight.
 
@@ -149,7 +160,7 @@ async def list_memories() -> list[MemoryEntry]:
         query_text = " ".join(parts) if parts else "code review conventions and mistakes"
 
         result = await client.arecall(
-            bank_id=BANK_ID,
+            bank_id=bank_id,
             query=query_text,
             max_tokens=4096,
             budget="mid",
