@@ -1,0 +1,34 @@
+[
+  {
+    "category": "Team Convention",
+    "contributor": "Arjun Mehta",
+    "file_path": null,
+    "module": "project-wide",
+    "pattern_tag": "mutable-default-arg",
+    "description": "Mutable default arguments (e.g. def f(x=[])) are banned project-wide. Established in PR #1 when Arjun Mehta used `def process(data=[])`. Use None and initialize inside the function body instead."
+  },
+  {
+    "category": "Recurring Mistake",
+    "contributor": "Arjun Mehta",
+    "file_path": null,
+    "module": "routes",
+    "pattern_tag": "missing-try-except-async",
+    "description": "Arjun Mehta has a recurring pattern of omitting try/except blocks around await calls in async route handlers. Flagged in PR #2 by Priya Nair, acknowledged but not resolved. Escalated in PR #4: 'This is the second time — please add this to your checklist.' This is a high-priority recurring issue."
+  },
+  {
+    "category": "Architectural Decision",
+    "contributor": null,
+    "file_path": null,
+    "module": "database",
+    "pattern_tag": "repository-layer",
+    "description": "All database calls must go through the repository layer. Direct ORM queries (e.g. db.query(Model).filter(...)) are not permitted in route handler files. Established in PR #3 during Danielle Osei's authentication module work."
+  },
+  {
+    "category": "Approved Exception",
+    "contributor": "Danielle Osei",
+    "file_path": "auth/legacy.py",
+    "module": "auth",
+    "pattern_tag": "legacy-auth-direct-query",
+    "description": "The legacy auth module (auth/legacy.py) is approved to use direct ORM queries until the Q3 authentication refactor is complete. Exception granted in PR #3. All other modules must use the repository layer."
+  }
+]

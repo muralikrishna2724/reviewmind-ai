@@ -1,0 +1,30 @@
+# Source documents (not for repo)
+files/
+
+# Environment — never commit real keys
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Kiro internals
+.kiro/
+
+# OS
+.DS_Store
+Thumbs.db
