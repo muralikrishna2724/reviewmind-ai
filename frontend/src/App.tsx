@@ -41,10 +41,9 @@ export default function App() {
   // Load projects on mount — gracefully handle backend being unavailable
   useEffect(() => {
     listProjects()
-      .then(setProjects)
+      .then(data => setProjects(Array.isArray(data) ? data : []))
       .catch((err) => {
         console.warn("Backend unavailable:", err?.message ?? err);
-        // App still renders — just no projects loaded
       });
   }, []);
 
@@ -143,7 +142,7 @@ export default function App() {
         <div className="border-b border-gray-800 px-6 py-3 flex items-center justify-between shrink-0">
           <div>
             <h1 className="text-sm font-bold text-white">
-              {projects.find(p => p.id === currentProjectId)?.name ?? "ReviewMind AI"}
+              {(projects ?? []).find(p => p.id === currentProjectId)?.name ?? "ReviewMind AI"}
             </h1>
             <p className="text-xs text-gray-500">Persistent memory-powered code review</p>
           </div>

@@ -50,8 +50,9 @@ export async function createProject(payload: {
 }
 
 export async function listProjects(): Promise<Project[]> {
-  const { data } = await api.get<Project[]>("/projects");
-  return data;
+  const { data } = await api.get("/projects");
+  // Handle both array response and wrapped { projects: [...] } response
+  return Array.isArray(data) ? data : (data?.projects ?? []);
 }
 
 export async function deleteProject(id: string): Promise<void> {

@@ -28,8 +28,8 @@ export default function Sidebar({
 }: Props) {
   const [search, setSearch] = useState("");
   const [showProjects, setShowProjects] = useState(true);
-  const current = projects.find(p => p.id === currentProjectId);
-  const filtered = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+  const current = (projects ?? []).find(p => p.id === currentProjectId);
+  const filtered = (projects ?? []).filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="w-60 bg-gray-900 border-r border-gray-800 flex flex-col h-screen shrink-0">
@@ -86,7 +86,7 @@ export default function Sidebar({
           onClick={() => setShowProjects(s => !s)}
           className="w-full flex items-center justify-between text-xs text-gray-500 font-semibold uppercase mb-2"
         >
-          <span>Projects ({projects.length})</span>
+          <span>Projects ({(projects ?? []).length})</span>
           <ChevronDown size={12} className={`transition-transform ${showProjects ? "" : "-rotate-90"}`} />
         </button>
 
@@ -99,7 +99,7 @@ export default function Sidebar({
               className="w-full px-2 py-1.5 mb-2 text-xs bg-gray-800 border border-gray-700 rounded text-gray-200 placeholder-gray-600 outline-none"
             />
             <div className="space-y-0.5">
-              {filtered.map(p => (
+              {(filtered ?? []).map(p => (
                 <div
                   key={p.id}
                   className={`group flex items-center justify-between px-2 py-2 rounded cursor-pointer transition-colors
