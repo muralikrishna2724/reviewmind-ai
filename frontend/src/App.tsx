@@ -49,7 +49,7 @@ export default function App() {
     setStep(4);
   };
 
-  const handleReview5 = async () => {
+  const handleReview2 = async () => {
     setReviewLoading(true);
     setReviewError(undefined);
     try {
@@ -154,7 +154,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Step 4: Review 5 — With Memory */}
+      {/* Step 4: Review 2 — With Memory */}
       {step === 4 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
@@ -170,7 +170,7 @@ export default function App() {
               <div className="space-y-3">
                 <p className="text-xs text-gray-400">Same code. Now with full team memory loaded.</p>
                 <button
-                  onClick={handleReview5}
+                  onClick={handleReview2}
                   disabled={reviewLoading}
                   className="flex items-center gap-2 px-5 py-2.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-bold rounded-lg transition-colors"
                 >
