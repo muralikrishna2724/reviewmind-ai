@@ -120,7 +120,9 @@ async def run_review(request: ReviewRequest, force_memory_mode: str | None = Non
     logger.info("Stage 6 complete: output formatted")
 
     # ── Stage 7: Memory Update ───────────────────────────────────────────────
-    await _update_memory(request, review_output)
+    memory_failures = await _update_memory(request, review_output)
+    if memory_failures:
+        logger.warning("Stage 7: %d memory write(s) failed", memory_failures)
     logger.info("Stage 7 complete: memory updated")
 
     return ReviewResponse(
@@ -257,10 +259,13 @@ def _fallback_review(
     )
 
 
-async def _update_memory(request: ReviewRequest, review: ReviewOutput) -> None:
-    """Stage 7: write new findings from this review back to Hindsight."""
+async def _update_memory(request: ReviewRequest, review: ReviewOutput) -> int:
+    """Stage 7: write new findings from this review back to Hindsight.
+
+    Returns the number of failed writes (0 on full success).
+    """
     if review.error:
-        return  # don't persist failed reviews
+        return 0  # don't persist failed reviews
 
     new_entries: list[MemoryEntryInput] = []
 
@@ -280,7 +285,10 @@ async def _update_memory(request: ReviewRequest, review: ReviewOutput) -> None:
             description=violation,
         ))
 
+    failures = 0
     for entry in new_entries[:5]:  # cap at 5 new entries per review
         success = await hindsight.write_memory(entry)
         if not success:
-            logger.warning("Failed to write memory entry: %s", entry.description[:80])
+            failures += 1
+            logger.error("Failed to write memory entry: %s", entry.description[:80])
+    return failures

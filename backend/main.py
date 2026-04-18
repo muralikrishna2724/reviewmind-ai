@@ -310,6 +310,7 @@ async def inject_memory(request: InjectRequest):
         else:
             failed += 1
             errors.append(f"Failed: {entry.description[:60]}")
+            break
     return InjectResponse(written=written, failed=failed, errors=errors)
 
 
