@@ -5,12 +5,12 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/review': 'http://localhost:8000',
-      '/inject-memory': 'http://localhost:8000',
-      '/projects': 'http://localhost:8000',
-      '/memory': 'http://localhost:8000',
-      '/reviews': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/review': { target: 'http://localhost:8000', changeOrigin: true },
+      '/inject-memory': { target: 'http://localhost:8000', changeOrigin: true },
+      '/projects': { target: 'http://localhost:8000', changeOrigin: true },
+      '/memory': { target: 'http://localhost:8000', changeOrigin: true },
+      '/reviews': { target: 'http://localhost:8000', changeOrigin: true },
+      '/health': { target: 'http://localhost:8000', changeOrigin: true },
     }
   }
 })
