@@ -27,16 +27,27 @@ def _file_type(filename: str) -> str:
 
 
 async def clone_repository(url: str, project_id: str, branch: str = "main") -> dict[str, Any]:
-    """Clone a git repository. Returns clone metadata."""
+    """Clone a git repository. Returns clone metadata.
+
+    If GITHUB_TOKEN is set and the URL is a GitHub HTTPS URL, the token is
+    injected so private repositories can be cloned without interactive auth.
+    """
     try:
         from git import Repo
     except ImportError:
         raise RuntimeError("GitPython not installed. Run: pip install GitPython")
 
+    # Inject GitHub token for private repo access
+    clone_url = url
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and "github.com" in url and url.startswith("https://"):
+        # Transform https://github.com/... → https://<token>@github.com/...
+        clone_url = url.replace("https://", f"https://{token}@", 1)
+
     project_dir = STORAGE_ROOT / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    repo = Repo.clone_from(url, str(project_dir), branch=branch, depth=1)
+    repo = Repo.clone_from(clone_url, str(project_dir), branch=branch, depth=1)
     return {
         "path": str(project_dir),
         "branch": branch,
