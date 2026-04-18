@@ -85,7 +85,16 @@ class ProjectResponse(BaseModel):
     created_at: str
 
 
-class ReviewRequestV2(ReviewRequest):
+class InjectPRsRequest(BaseModel):
+    limit: int = 30  # number of PRs to fetch (1–100)
+
+
+class InjectPRsResponse(BaseModel):
+    fetched: int
+    written: int
+    failed: int
+    bank_id: str
+    errors: list[str]
     project_id: Optional[str] = None
     file_id: Optional[str] = None
     force_memory_mode: Optional[str] = None  # 'with' | 'without' | None
@@ -240,6 +249,78 @@ async def list_pull_requests(project_id: str, db: AsyncSession = Depends(get_db)
         ],
         "total": len(prs),
     }
+
+
+@app.post("/projects/{project_id}/inject-prs")
+async def inject_prs(
+    project_id: str,
+    req: InjectPRsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch the last N PRs from the project's GitHub repo and write each to a
+    per-project Hindsight memory bank."""
+    p = await db.get(Project, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not p.source_url:
+        raise HTTPException(status_code=400, detail="Project has no GitHub URL")
+
+    limit = max(1, min(req.limit, 100))
+    bank_id = hindsight.project_bank_id(project_id)
+
+    # Ensure the per-project bank exists
+    await hindsight.ensure_bank(bank_id=bank_id, name=f"{p.name} — PR Memory")
+
+    # Fetch PRs from GitHub
+    try:
+        prs = await asyncio.to_thread(
+            github_service.fetch_pull_requests, p.source_url, "all", limit
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"GitHub fetch failed: {exc}")
+
+    written = failed = 0
+    errors: list[str] = []
+
+    for pr in prs:
+        # Build a rich memory description from the PR
+        body_snippet = (pr["body"] or "")[:300].strip()
+        description = (
+            f"PR #{pr['number']} by {pr['author']}: {pr['title']}. "
+            f"Branch: {pr['branch']} → {pr['base_branch']}. "
+            f"State: {pr['state']}."
+        )
+        if body_snippet:
+            description += f" Description: {body_snippet}"
+
+        entry = MemoryEntryInput(
+            category="Team Convention",
+            contributor=pr["author"] or None,
+            file_path=None,
+            module=None,
+            pattern_tag=f"pr-{pr['number']}",
+            description=description,
+        )
+
+        success = await hindsight.write_memory(entry, bank_id=bank_id)
+        if success:
+            written += 1
+        else:
+            failed += 1
+            errors.append(f"PR #{pr['number']} write failed")
+            break  # fail-fast
+
+    logger.info(
+        "inject-prs project=%s bank=%s fetched=%d written=%d failed=%d",
+        project_id, bank_id, len(prs), written, failed,
+    )
+    return InjectPRsResponse(
+        fetched=len(prs),
+        written=written,
+        failed=failed,
+        bank_id=bank_id,
+        errors=errors,
+    )
 
 
 @app.get("/projects/{project_id}/files/{file_id}/content")

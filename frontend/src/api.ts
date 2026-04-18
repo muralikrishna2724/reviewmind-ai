@@ -94,3 +94,13 @@ export async function getAnalytics(projectId: string) {
   const { data } = await api.get(`/projects/${projectId}/analytics`);
   return data;
 }
+
+// ── PR Injection ──────────────────────────────────────────────────────────────
+
+export async function injectPRs(
+  projectId: string,
+  limit: number = 30,
+): Promise<{ fetched: number; written: number; failed: number; bank_id: string; errors: string[] }> {
+  const { data } = await api.post(`/projects/${projectId}/inject-prs`, { limit });
+  return data;
+}

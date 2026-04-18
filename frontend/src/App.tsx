@@ -216,6 +216,7 @@ export default function App() {
                   <InjectMemoryButton
                     onSuccess={setMemoryEntries}
                     onLoadingChange={setMemoryLoading}
+                    projectId={currentProjectId}
                   />
                 </div>
                 {reviewError && (

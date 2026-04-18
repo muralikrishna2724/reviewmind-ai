@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { MemoryEntry, MemoryEntryInput } from "../types";
-import { injectMemory } from "../api";
-import { Zap, RefreshCw } from "lucide-react";
+import { injectMemory, injectPRs } from "../api";
+import { Zap, RefreshCw, GitPullRequest } from "lucide-react";
 
 const PR_HISTORY: MemoryEntryInput[] = [
   {
@@ -10,7 +10,7 @@ const PR_HISTORY: MemoryEntryInput[] = [
     file_path: null,
     module: "project-wide",
     pattern_tag: "mutable-default-arg",
-    description: "Mutable default arguments (e.g. def f(x=[])) are banned project-wide. Established in PR #1 when Arjun Mehta used `def process(data=[])`. Use None and initialize inside the function body instead.",
+    description: "Mutable default arguments (e.g. def f(x=[])) are banned project-wide. Use None and initialize inside the function body instead.",
   },
   {
     category: "Recurring Mistake",
@@ -18,7 +18,7 @@ const PR_HISTORY: MemoryEntryInput[] = [
     file_path: null,
     module: "routes",
     pattern_tag: "missing-try-except-async",
-    description: "Arjun Mehta has a recurring pattern of omitting try/except blocks around await calls in async route handlers. Flagged in PR #2 by Priya Nair, acknowledged but not resolved. Escalated in PR #4: 'This is the second time — please add this to your checklist.'",
+    description: "Arjun Mehta has a recurring pattern of omitting try/except blocks around await calls in async route handlers.",
   },
   {
     category: "Architectural Decision",
@@ -26,7 +26,7 @@ const PR_HISTORY: MemoryEntryInput[] = [
     file_path: null,
     module: "database",
     pattern_tag: "repository-layer",
-    description: "All database calls must go through the repository layer. Direct ORM queries (e.g. db.query(Model).filter(...)) are not permitted in route handler files. Established in PR #3.",
+    description: "All database calls must go through the repository layer. Direct ORM queries in route handler files are not permitted.",
   },
   {
     category: "Approved Exception",
@@ -34,28 +34,49 @@ const PR_HISTORY: MemoryEntryInput[] = [
     file_path: "auth/legacy.py",
     module: "auth",
     pattern_tag: "legacy-auth-direct-query",
-    description: "The legacy auth module (auth/legacy.py) is approved to use direct ORM queries until the Q3 authentication refactor is complete. Exception granted in PR #3.",
+    description: "The legacy auth module (auth/legacy.py) is approved to use direct ORM queries until the Q3 authentication refactor is complete.",
   },
 ];
 
 interface Props {
   onSuccess: (entries: MemoryEntry[]) => void;
   onLoadingChange: (loading: boolean) => void;
+  projectId?: string | null;
 }
 
-export function InjectMemoryButton({ onSuccess, onLoadingChange }: Props) {
+export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Props) {
   const [loading, setLoading] = useState(false);
   const [failCount, setFailCount] = useState(0);
+  const [prLimit, setPrLimit] = useState(30);
+  const [result, setResult] = useState<{ written: number; fetched: number } | null>(null);
 
-  const inject = async () => {
+  const injectFromGitHub = async () => {
+    if (!projectId) return;
     setLoading(true);
     onLoadingChange(true);
     setFailCount(0);
+    setResult(null);
     try {
-      const result = await injectMemory(PR_HISTORY);
-      if (result.failed > 0) {
-        setFailCount(result.failed);
-      }
+      const res = await injectPRs(projectId, prLimit);
+      setResult({ written: res.written, fetched: res.fetched });
+      if (res.failed > 0) setFailCount(res.failed);
+      onSuccess([]);
+    } catch {
+      setFailCount(prLimit);
+    } finally {
+      setLoading(false);
+      onLoadingChange(false);
+    }
+  };
+
+  const injectStatic = async () => {
+    setLoading(true);
+    onLoadingChange(true);
+    setFailCount(0);
+    setResult(null);
+    try {
+      const res = await injectMemory(PR_HISTORY);
+      if (res.failed > 0) setFailCount(res.failed);
       const entries: MemoryEntry[] = PR_HISTORY.map((e, i) => ({
         ...e,
         id: `injected-${i}`,
@@ -70,20 +91,59 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange }: Props) {
     }
   };
 
+  if (projectId) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={prLimit}
+            onChange={e => setPrLimit(Math.max(1, Math.min(100, Number(e.target.value))))}
+            className="w-20 px-2 py-1.5 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-200 outline-none focus:border-purple-500"
+            title="Number of PRs to fetch (1-100)"
+          />
+          <button
+            onClick={injectFromGitHub}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-bold rounded-lg transition-colors"
+          >
+            {loading
+              ? <><RefreshCw size={13} className="animate-spin" /> Fetching PRs...</>
+              : <><GitPullRequest size={13} /> Inject Last {prLimit} PRs</>}
+          </button>
+        </div>
+        {result && (
+          <p className="text-xs text-green-400">
+            Fetched {result.fetched} PRs — {result.written} written to memory bank.
+          </p>
+        )}
+        {failCount > 0 && (
+          <p className="text-xs text-red-400">
+            {failCount} write(s) failed.{" "}
+            <button onClick={injectFromGitHub} className="underline hover:text-red-300">Retry</button>
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <button
-        onClick={inject}
+        onClick={injectStatic}
         disabled={loading}
         className="flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold rounded-lg transition-colors"
       >
-        {loading ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-        {loading ? "Injecting PR History..." : "Inject Memory (PR #1–4)"}
+        {loading
+          ? <><RefreshCw size={14} className="animate-spin" /> Injecting...</>
+          : <><Zap size={14} /> Inject Memory (PR #1-4)</>}
       </button>
       {failCount > 0 && (
         <p className="text-xs text-red-400">
           {failCount} write(s) failed.{" "}
-          <button onClick={inject} className="underline hover:text-red-300">Retry</button>
+          <button onClick={injectStatic} className="underline hover:text-red-300">Retry</button>
         </p>
       )}
     </div>
