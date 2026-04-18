@@ -1,6 +1,7 @@
 """ReviewMind AI — FastAPI application (Production)."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -54,7 +55,7 @@ app.add_middleware(
 # ── Dependency ────────────────────────────────────────────────────────────────
 
 from database import get_db
-from models.db_models import File, Project, Review
+from models.db_models import File, Project, PullRequest, Review
 from models.review import (
     InjectRequest, InjectResponse, MemoryEntryInput,
     ReviewRequest, ReviewResponse,
@@ -62,6 +63,7 @@ from models.review import (
 from agent import hindsight
 from agent.workflow import run_review
 from services import git_service
+from services import github_service
 
 
 # ── Pydantic request/response schemas ────────────────────────────────────────
@@ -144,6 +146,32 @@ async def create_project(req: CreateProjectRequest, db: AsyncSession = Depends(g
     db.add(project)
     await db.commit()
     await db.refresh(project)
+
+    # Fetch PRs from GitHub after project is saved (non-blocking — failures are logged, not raised)
+    if req.source_type == "git" and req.git_url:
+        try:
+            prs = await asyncio.to_thread(github_service.fetch_pull_requests, req.git_url)
+            for pr in prs:
+                db.add(PullRequest(
+                    project_id=project_id,
+                    pr_number=pr["number"],
+                    title=pr["title"],
+                    state=pr["state"],
+                    author=pr["author"],
+                    branch=pr["branch"],
+                    base_branch=pr["base_branch"],
+                    body=pr["body"],
+                    pr_created_at=pr["created_at"],
+                    pr_updated_at=pr["updated_at"],
+                    merged_at=pr["merged_at"],
+                    url=pr["url"],
+                    diff_url=pr["diff_url"],
+                ))
+            await db.commit()
+            logger.info("Fetched %d PRs for project %s", len(prs), project_id)
+        except Exception as exc:
+            logger.warning("Could not fetch PRs for %s: %s", req.git_url, exc)
+
     return _project_to_response(project)
 
 
@@ -180,6 +208,38 @@ async def list_files(project_id: str, db: AsyncSession = Depends(get_db)):
     return [{"id": str(f.id), "path": f.path, "name": f.name,
              "size": f.size, "type": f.file_type, "reviewed": f.reviewed}
             for f in files]
+
+
+@app.get("/projects/{project_id}/prs")
+async def list_pull_requests(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Return all pull requests fetched for this project."""
+    result = await db.execute(
+        select(PullRequest)
+        .where(PullRequest.project_id == project_id)
+        .order_by(PullRequest.pr_number.desc())
+    )
+    prs = result.scalars().all()
+    return {
+        "pull_requests": [
+            {
+                "id": str(pr.id),
+                "number": pr.pr_number,
+                "title": pr.title,
+                "state": pr.state,
+                "author": pr.author,
+                "branch": pr.branch,
+                "base_branch": pr.base_branch,
+                "body": pr.body,
+                "created_at": pr.pr_created_at,
+                "updated_at": pr.pr_updated_at,
+                "merged_at": pr.merged_at,
+                "url": pr.url,
+                "diff_url": pr.diff_url,
+            }
+            for pr in prs
+        ],
+        "total": len(prs),
+    }
 
 
 @app.get("/projects/{project_id}/files/{file_id}/content")
