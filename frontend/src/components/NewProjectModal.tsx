@@ -29,7 +29,10 @@ export default function NewProjectModal({ onClose, onSuccess }: Props) {
       onSuccess(project);
       onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to create project");
+      // Extract the actual detail from the backend response if available
+      const axiosErr = e as { response?: { data?: { detail?: string } }; message?: string };
+      const detail = axiosErr?.response?.data?.detail;
+      setError(detail ?? (e instanceof Error ? e.message : "Failed to create project"));
     } finally {
       setLoading(false);
     }
