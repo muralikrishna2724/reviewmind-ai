@@ -7,6 +7,10 @@ export default defineConfig({
     proxy: {
       '/review': 'http://localhost:8000',
       '/inject-memory': 'http://localhost:8000',
+      '/projects': 'http://localhost:8000',
+      '/memory': 'http://localhost:8000',
+      '/reviews': 'http://localhost:8000',
+      '/health': 'http://localhost:8000',
     }
   }
 })
