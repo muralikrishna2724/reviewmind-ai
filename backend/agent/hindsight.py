@@ -5,6 +5,7 @@ Never raises to the caller — errors are caught and converted to safe defaults.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -29,7 +30,8 @@ async def ensure_bank() -> None:
     """Create the memory bank if it doesn't exist yet."""
     client = _client()
     try:
-        client.create_bank(
+        await asyncio.to_thread(
+            client.create_bank,
             bank_id=BANK_ID,
             name="ReviewMind AI — Crestline Software",
             background=(
@@ -43,7 +45,7 @@ async def ensure_bank() -> None:
         # Bank likely already exists — that's fine
         logger.debug("ensure_bank: %s", exc)
     finally:
-        client.close()
+        await asyncio.to_thread(client.close)
 
 
 async def write_memory(entry: MemoryEntryInput) -> bool:
@@ -93,7 +95,7 @@ async def list_memories() -> list[MemoryEntry]:
     """
     client = _client()
     try:
-        result = client.list_memories(bank_id=BANK_ID, limit=100)
+        result = await asyncio.to_thread(client.list_memories, bank_id=BANK_ID, limit=100)
         entries: list[MemoryEntry] = []
         for i, item in enumerate(result.items or []):
             try:
@@ -125,7 +127,7 @@ async def list_memories() -> list[MemoryEntry]:
         logger.error("Hindsight list_memories error: %s", exc)
         return []
     finally:
-        client.close()
+        await asyncio.to_thread(client.close)
 
 
 async def query_memory(
