@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 load_dotenv()
@@ -199,19 +199,7 @@ async def get_file_content(project_id: str, file_id: str, db: AsyncSession = Dep
 @app.post("/review", response_model=ReviewResponseV2)
 async def review_code(request: ReviewRequestV2, db: AsyncSession = Depends(get_db)):
     start = time.time()
-
-    # Force memory mode for comparison
-    if request.force_memory_mode == "without":
-        from agent import hindsight as hs
-        original_query = hs.query_memory
-        async def _empty_query(*a, **kw): return []
-        hs.query_memory = _empty_query
-
-    response = await run_review(request)
-
-    if request.force_memory_mode == "without":
-        hs.query_memory = original_query
-
+    response = await run_review(request, force_memory_mode=request.force_memory_mode)
     elapsed_ms = int((time.time() - start) * 1000)
     review_id = str(uuid.uuid4())
 

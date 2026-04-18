@@ -80,7 +80,7 @@ _REVIEW_TOOL: list[dict[str, Any]] = [
 # ── Pipeline ─────────────────────────────────────────────────────────────────
 
 
-async def run_review(request: ReviewRequest) -> ReviewResponse:
+async def run_review(request: ReviewRequest, force_memory_mode: str | None = None) -> ReviewResponse:
     """Execute the full 7-stage review pipeline for a given ReviewRequest."""
 
     # ── Stage 1: Code Ingestion ──────────────────────────────────────────────
@@ -92,11 +92,14 @@ async def run_review(request: ReviewRequest) -> ReviewResponse:
     )
 
     # ── Stage 2: Context Retrieval ───────────────────────────────────────────
-    recalled: list[MemoryEntry] = await hindsight.query_memory(
-        contributor=request.contributor,
-        file_path=request.file_path,
-        tags=parsed.detected_patterns[:5],  # top detected patterns as tags
-    )
+    if force_memory_mode == "without":
+        recalled: list[MemoryEntry] = []
+    else:
+        recalled = await hindsight.query_memory(
+            contributor=request.contributor,
+            file_path=request.file_path,
+            tags=parsed.detected_patterns[:5],
+        )
     memory_mode = "with" if recalled else "without"
     logger.info("Stage 2 complete: %d memory entries recalled (mode=%s)", len(recalled), memory_mode)
 

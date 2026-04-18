@@ -38,9 +38,14 @@ export default function App() {
   const [withReview, setWithReview] = useState<ReviewResponse | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
 
-  // Load projects on mount
+  // Load projects on mount — gracefully handle backend being unavailable
   useEffect(() => {
-    listProjects().then(setProjects).catch(() => {});
+    listProjects()
+      .then(setProjects)
+      .catch((err) => {
+        console.warn("Backend unavailable:", err?.message ?? err);
+        // App still renders — just no projects loaded
+      });
   }, []);
 
   // Load files + reviews when project changes
