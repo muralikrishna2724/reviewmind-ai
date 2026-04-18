@@ -285,10 +285,9 @@ async def _update_memory(request: ReviewRequest, review: ReviewOutput) -> int:
             description=violation,
         ))
 
-    failures = 0
     for entry in new_entries[:5]:  # cap at 5 new entries per review
         success = await hindsight.write_memory(entry)
         if not success:
-            failures += 1
             logger.error("Failed to write memory entry: %s", entry.description[:80])
-    return failures
+            return 1
+    return 0
