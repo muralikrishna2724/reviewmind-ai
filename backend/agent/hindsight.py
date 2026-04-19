@@ -34,7 +34,11 @@ def _client() -> Hindsight:
 
 
 async def ensure_bank(bank_id: str = BANK_ID, name: str | None = None) -> None:
-    """Create the memory bank if it doesn't exist yet."""
+    """Create the memory bank if it doesn't exist yet. Idempotent.
+
+    Raises on genuine errors (auth failure, network error) so callers know
+    the bank is not usable. Silently ignores "already exists" responses.
+    """
     client = _client()
     bank_name = name or f"ReviewMind AI — {bank_id}"
     try:
@@ -50,13 +54,37 @@ async def ensure_bank(bank_id: str = BANK_ID, name: str | None = None) -> None:
         )
         logger.info("Hindsight bank '%s' created.", bank_id)
     except Exception as exc:
-        # Bank likely already exists — that's fine
-        logger.debug("ensure_bank: %s", exc)
+        error_str = str(exc).lower()
+        if any(kw in error_str for kw in ("already exists", "duplicate", "conflict", "409")):
+            logger.debug("ensure_bank '%s': already exists, skipping.", bank_id)
+        else:
+            # Real error — log at ERROR level so it's visible, but don't crash
+            # the whole request; write_memory will surface the failure anyway.
+            logger.error(
+                "ensure_bank '%s' failed (%s: %s) — writes may fail.",
+                bank_id, type(exc).__name__, exc,
+            )
     finally:
         await asyncio.to_thread(client.close)
 
 
-async def write_memory(
+async def test_connection() -> tuple[bool, str]:
+    """Lightweight connectivity check — tries to list banks.
+
+    Returns (True, "") on success, (False, error_message) on failure.
+    Used at startup to surface auth/network problems early.
+    """
+    client = _client()
+    try:
+        await asyncio.to_thread(client.list_banks)
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    finally:
+        await asyncio.to_thread(client.close)
+
+
+
     entry: MemoryEntryInput,
     bank_id: str = BANK_ID,
     *,
@@ -162,7 +190,7 @@ async def list_memories(bank_id: str = BANK_ID) -> list[MemoryEntry]:
         logger.error("Hindsight list_memories error: %s", exc)
         return []
     finally:
-        await asyncio.to_thread(client.close)
+        await client.aclose()
 
 
 async def query_memory(

@@ -47,6 +47,7 @@ interface Props {
 export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Props) {
   const [loading, setLoading] = useState(false);
   const [failCount, setFailCount] = useState(0);
+  const [failErrors, setFailErrors] = useState<string[]>([]);
   const [prLimit, setPrLimit] = useState(30);
   const [result, setResult] = useState<{ written: number; fetched: number } | null>(null);
 
@@ -55,14 +56,19 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
     setLoading(true);
     onLoadingChange(true);
     setFailCount(0);
+    setFailErrors([]);
     setResult(null);
     try {
       const res = await injectPRs(projectId, prLimit);
       setResult({ written: res.written, fetched: res.fetched });
-      if (res.failed > 0) setFailCount(res.failed);
+      if (res.failed > 0) {
+        setFailCount(res.failed);
+        setFailErrors(res.errors ?? []);
+      }
       onSuccess([]);
-    } catch {
+    } catch (e: unknown) {
       setFailCount(prLimit);
+      setFailErrors([e instanceof Error ? e.message : "Request failed"]);
     } finally {
       setLoading(false);
       onLoadingChange(false);
@@ -73,18 +79,23 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
     setLoading(true);
     onLoadingChange(true);
     setFailCount(0);
+    setFailErrors([]);
     setResult(null);
     try {
       const res = await injectMemory(PR_HISTORY);
-      if (res.failed > 0) setFailCount(res.failed);
+      if (res.failed > 0) {
+        setFailCount(res.failed);
+        setFailErrors(res.errors ?? []);
+      }
       const entries: MemoryEntry[] = PR_HISTORY.map((e, i) => ({
         ...e,
         id: `injected-${i}`,
         created_at: new Date().toISOString(),
       }));
       onSuccess(entries);
-    } catch {
+    } catch (e: unknown) {
       setFailCount(PR_HISTORY.length);
+      setFailErrors([e instanceof Error ? e.message : "Request failed"]);
     } finally {
       setLoading(false);
       onLoadingChange(false);
@@ -120,10 +131,15 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
           </p>
         )}
         {failCount > 0 && (
-          <p className="text-xs text-red-400">
-            {failCount} write(s) failed.{" "}
-            <button onClick={injectFromGitHub} className="underline hover:text-red-300">Retry</button>
-          </p>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-red-400">
+              {failCount} write(s) failed.{" "}
+              <button onClick={injectFromGitHub} className="underline hover:text-red-300">Retry</button>
+            </p>
+            {failErrors.map((e, i) => (
+              <p key={i} className="text-xs text-red-500 font-mono break-all">{e}</p>
+            ))}
+          </div>
         )}
       </div>
     );
@@ -141,10 +157,15 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
           : <><Zap size={14} /> Inject Memory (PR #1-4)</>}
       </button>
       {failCount > 0 && (
-        <p className="text-xs text-red-400">
-          {failCount} write(s) failed.{" "}
-          <button onClick={injectStatic} className="underline hover:text-red-300">Retry</button>
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-red-400">
+            {failCount} write(s) failed.{" "}
+            <button onClick={injectStatic} className="underline hover:text-red-300">Retry</button>
+          </p>
+          {failErrors.map((e, i) => (
+            <p key={i} className="text-xs text-red-500 font-mono break-all">{e}</p>
+          ))}
+        </div>
       )}
     </div>
   );

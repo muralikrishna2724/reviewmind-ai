@@ -38,6 +38,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from database import init_db
     await init_db()
     from agent import hindsight
+
+    # Test Hindsight connectivity before accepting traffic
+    ok, err = await hindsight.test_connection()
+    if not ok:
+        logger.error(
+            "Hindsight connection failed — check HINDSIGHT_API_KEY and HINDSIGHT_INSTANCE_URL. Error: %s", err
+        )
+        sys.exit(1)
+    logger.info("Hindsight connection OK.")
+
     await hindsight.ensure_bank()
     yield
 
