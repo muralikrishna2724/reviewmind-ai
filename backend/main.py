@@ -105,6 +105,12 @@ class ReviewResponseV2(ReviewResponse):
     processing_time_ms: int
 
 
+class ReviewRequestV2(ReviewRequest):
+    project_id: Optional[str] = None
+    file_id: Optional[str] = None
+    force_memory_mode: Optional[str] = None  # 'with' | 'without' | None
+
+
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _project_to_response(p: Project) -> ProjectResponse:
@@ -302,12 +308,12 @@ async def inject_prs(
             description=description,
         )
 
-        success = await hindsight.write_memory(entry, bank_id=bank_id)
+        success, err = await hindsight.write_memory(entry, bank_id=bank_id)
         if success:
             written += 1
         else:
             failed += 1
-            errors.append(f"PR #{pr['number']} write failed")
+            errors.append(f"PR #{pr['number']} write failed: {err}")
             break  # fail-fast
 
     logger.info(
@@ -446,11 +452,12 @@ async def inject_memory(request: InjectRequest):
     written = failed = 0
     errors: list[str] = []
     for entry in request.entries:
-        if await hindsight.write_memory(entry):
+        success, err = await hindsight.write_memory(entry)
+        if success:
             written += 1
         else:
             failed += 1
-            errors.append(f"Failed: {entry.description[:60]}")
+            errors.append(f"Failed: {entry.description[:60]} — {err}")
             break
     return InjectResponse(written=written, failed=failed, errors=errors)
 

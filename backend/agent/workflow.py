@@ -288,8 +288,8 @@ async def _update_memory(request: ReviewRequest, review: ReviewOutput) -> int:
     for entry in new_entries[:5]:  # cap at 5 new entries per review
         if not entry.description.strip():
             continue  # skip blank entries — Hindsight rejects empty content
-        success = await hindsight.write_memory(entry)
+        success, err = await hindsight.write_memory(entry)
         if not success:
-            logger.error("Failed to write memory entry: %s", entry.description[:80])
+            logger.error("Failed to write memory entry: %s — %s", entry.description[:80], err)
             return 1
     return 0

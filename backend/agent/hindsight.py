@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 
 from hindsight_client import Hindsight
 
@@ -55,10 +56,17 @@ async def ensure_bank(bank_id: str = BANK_ID, name: str | None = None) -> None:
         await asyncio.to_thread(client.close)
 
 
-async def write_memory(entry: MemoryEntryInput, bank_id: str = BANK_ID) -> bool:
+async def write_memory(
+    entry: MemoryEntryInput,
+    bank_id: str = BANK_ID,
+    *,
+    max_retries: int = 3,
+) -> tuple[bool, str | None]:
     """Store a single memory entry in Hindsight.
 
-    Returns True on success, False on any error (never raises).
+    Returns (True, None) on success, (False, error_message) on failure.
+    Retries up to max_retries times with exponential backoff on HTTP 429.
+    Never raises.
     """
     client = _client()
     try:
@@ -81,16 +89,36 @@ async def write_memory(entry: MemoryEntryInput, bank_id: str = BANK_ID) -> bool:
         if entry.pattern_tag:
             context_parts.append(f"Pattern: {entry.pattern_tag}")
 
-        await client.aretain(
-            bank_id=bank_id,
-            content=content,
-            context=", ".join(context_parts) if context_parts else None,
-            metadata=metadata,
-        )
-        return True
-    except Exception as exc:
-        logger.error("Hindsight write_memory error: %s", exc)
-        return False
+        last_error: str = ""
+        for attempt in range(1, max_retries + 1):
+            try:
+                await client.aretain(
+                    bank_id=bank_id,
+                    content=content,
+                    context=", ".join(context_parts) if context_parts else None,
+                    metadata=metadata,
+                )
+                return True, None
+            except Exception as exc:
+                error_msg = f"{type(exc).__name__}: {exc}"
+                last_error = error_msg
+                is_rate_limit = "429" in str(exc) or "rate" in str(exc).lower()
+                if is_rate_limit and attempt < max_retries:
+                    delay = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "Hindsight rate limit (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt, max_retries, delay, error_msg,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Hindsight write_memory failed (attempt %d/%d): %s",
+                        attempt, max_retries, error_msg,
+                    )
+                    if not is_rate_limit:
+                        break  # non-rate-limit errors don't benefit from retry
+
+        return False, last_error
     finally:
         await client.aclose()
 
