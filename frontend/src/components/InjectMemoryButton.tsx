@@ -130,17 +130,6 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
             Fetched {result.fetched} PRs — {result.written} written to memory bank.
           </p>
         )}
-        {failCount > 0 && (
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-red-400">
-              {failCount} write(s) failed.{" "}
-              <button onClick={injectFromGitHub} className="underline hover:text-red-300">Retry</button>
-            </p>
-            {failErrors.map((e, i) => (
-              <p key={i} className="text-xs text-red-500 font-mono break-all">{e}</p>
-            ))}
-          </div>
-        )}
       </div>
     );
   }
@@ -162,9 +151,6 @@ export function InjectMemoryButton({ onSuccess, onLoadingChange, projectId }: Pr
             {failCount} write(s) failed.{" "}
             <button onClick={injectStatic} className="underline hover:text-red-300">Retry</button>
           </p>
-          {failErrors.map((e, i) => (
-            <p key={i} className="text-xs text-red-500 font-mono break-all">{e}</p>
-          ))}
         </div>
       )}
     </div>
