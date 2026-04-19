@@ -288,7 +288,11 @@ async def inject_prs(
     written = failed = 0
     errors: list[str] = []
 
-    for pr in prs:
+    for i, pr in enumerate(prs):
+        # 2-second delay between writes to avoid rate limiting
+        if i > 0:
+            await asyncio.sleep(2)
+
         # Build a rich memory description from the PR
         body_snippet = (pr["body"] or "")[:300].strip()
         description = (
