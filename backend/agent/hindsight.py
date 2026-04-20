@@ -84,7 +84,7 @@ async def test_connection() -> tuple[bool, str]:
         await asyncio.to_thread(client.close)
 
 
-
+async def write_memory(
     entry: MemoryEntryInput,
     bank_id: str = BANK_ID,
     *,
